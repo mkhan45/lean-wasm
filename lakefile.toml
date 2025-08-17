@@ -1,0 +1,10 @@
+name = "wasm"
+version = "0.1.0"
+defaultTargets = ["wasm"]
+
+[[lean_lib]]
+name = "Wasm"
+
+[[lean_exe]]
+name = "wasm"
+root = "Main"
