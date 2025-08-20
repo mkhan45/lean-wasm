@@ -8,3 +8,7 @@ name = "Wasm"
 [[lean_exe]]
 name = "wasm"
 root = "Main"
+
+[[require]]
+name = "aesop"
+git = "https://github.com/leanprover-community/aesop"
