@@ -10,10 +10,10 @@ inductive Val : Type
   | F32 (n : Float)
   deriving Repr
 
-@[simp]
-def Val.toValType : Val -> ValType
-  | I32 _ => ValType.I32
-  | F32 _ => ValType.F32
+@[simp, reducible]
+def Val.toValType (v: Val) : ValType := match v with
+  | I32 _ => .I32
+  | F32 _ => .F32
 
 abbrev Stack := List Val
 abbrev StackTypes := List ValType
@@ -22,11 +22,11 @@ abbrev StackTypes := List ValType
 abbrev Stack.types (s : Stack) : StackTypes := List.map Val.toValType s
 
 inductive Op : StackTypes -> StackTypes -> Type where
-  | I32Const (n : UInt32) : Op inpTys (ValType.I32 :: inpTys)
-  | I32Add : Op (ValType.I32 :: ValType.I32 :: rest) (ValType.I32 :: rest)
-  | I32Sub : Op (ValType.I32 :: ValType.I32 :: rest) (ValType.I32 :: rest)
-  | F32Const (n : Float) : Op inpTys (ValType.F32 :: inpTys)
-  | F32Add : Op (ValType.F32 :: ValType.F32 :: rest) (ValType.F32 :: rest)
+  | I32Const (n : UInt32) : Op inpTys (.I32 :: inpTys)
+  | F32Const (n : Float) : Op inpTys (.F32 :: inpTys)
+  | I32Add : Op (.I32 :: .I32 :: rest) (.I32 :: rest)
+  | I32Sub : Op (.I32 :: .I32 :: rest) (.I32 :: rest)
+  | F32Add : Op (.F32 :: .F32 :: rest) (.F32 :: rest)
 
 inductive Prog : StackTypes -> StackTypes -> Type where
   | nil : Prog s s
@@ -69,6 +69,8 @@ macro "stack_op'" h:ident : tactic => `(tactic| {
 -- so we need the extra h. Additionally, in the previous evalOp, somehow Lean figures
 -- xs = inpTy automatically because it specializes more into the definition of Op?
 -- something to do w/ definitional vs propositional equality? or more quantification order?
+-- evalOp' is fundamentally different, since currying it with an op would produce
+-- all of evalOp and also some useless functions which accept the wrong stack
 def evalOp' (op : Op inpTys outTys) (inp : Stack) (h : inp.types = inpTys) : {out : Stack // out.types = outTys} :=
   match h1 : op, h2 : inp with
   | Op.I32Const n, inp => ⟨Val.I32 n :: inp, by stack_op' h⟩
@@ -96,17 +98,35 @@ def testProgF : Prog [] [ValType.F32] :=
 #eval (evalProg' testProgF [] rfl).val
 
 inductive TypedVal : ValType -> Type
-  | I32 (n : UInt32) : TypedVal ValType.I32
-  | F32 (n : Float) : TypedVal ValType.F32
-  deriving Repr
+| I32 (v : UInt32) : TypedVal .I32
+| F32 (v : Float) : TypedVal .F32
 
+-- fundamentally different from just a stack,
+-- which could only contain one variant of TypedVal
 inductive TypedStack : StackTypes -> Type
   | nil : TypedStack []
   | cons (t : TypedVal t') (ts : TypedStack ts') : TypedStack (t' :: ts')
 
--- i dont really understand why this is different that evalOp', but it works better
-def evalOp'' (op : Op inpTys outTys) (inp : TypedStack inpTys) : TypedStack outTys := match op with
-| Op.I32Const n => TypedStack.cons (TypedVal.I32 n) inp
-| Op.I32Add =>
-    let TypedStack.cons (TypedVal.I32 a) (TypedStack.cons (TypedVal.I32 b) xs) := inp
+-- kind of better? makes a lot of the proof stuff implicit in the computation but
+-- would be clunky
+def evalOp'' (op : Op inpTys outTys) (inp : TypedStack inpTys) : TypedStack outTys := match op, inp with
+| Op.I32Const n, inp =>
+    TypedStack.cons (TypedVal.I32 n) inp
+| Op.I32Add, TypedStack.cons (TypedVal.I32 a) (TypedStack.cons (TypedVal.I32 b) xs) => 
     TypedStack.cons (TypedVal.I32 (a + b)) xs
+| Op.I32Sub, TypedStack.cons (TypedVal.I32 a) (TypedStack.cons (TypedVal.I32 b) xs) => 
+    TypedStack.cons (TypedVal.I32 (a - b)) xs
+| Op.F32Const n, inp =>
+    TypedStack.cons (TypedVal.F32 n) inp
+| Op.F32Add, TypedStack.cons (TypedVal.F32 a) (TypedStack.cons (TypedVal.F32 b) xs) => 
+    TypedStack.cons (TypedVal.F32 (a + b)) xs
+
+-- idk what this is good for
+inductive WasmProg : Stack -> Type
+| nil : WasmProg []
+| cons (prev : WasmProg init) (op : Op init.types outTys) : WasmProg (evalOp init op)
+
+def someProg :=
+  WasmProg.cons (WasmProg.cons WasmProg.nil (.I32Const 5)) (.I32Const 10)
+
+#check someProg
