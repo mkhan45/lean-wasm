@@ -21,11 +21,12 @@ abbrev StackTypes := List ValType
 @[simp]
 abbrev Stack.types (s : Stack) : StackTypes := List.map Val.toValType s
 
-inductive Op : StackTypes -> StackTypes -> Type where
-  | I32Const {rest : StackTypes} (n : UInt32) : Op rest (ValType.I32 :: rest)
-  | I32Add {rest : StackTypes} : Op (ValType.I32 :: ValType.I32 :: rest) (ValType.I32 :: rest)
-  | F32Const {rest : StackTypes} (n : Float) : Op rest (ValType.F32 :: rest)
-  | F32Add {rest : StackTypes} : Op (ValType.F32 :: ValType.F32 :: rest) (ValType.F32 :: rest)
+inductive Op : (inpTys : StackTypes) -> (outTys : StackTypes) -> Type where
+  | I32Const (n : UInt32) : Op inpTys (ValType.I32 :: inpTys)
+  | I32Add : Op (ValType.I32 :: ValType.I32 :: inpTys) (ValType.I32 :: inpTys)
+  | I32Sub : Op (ValType.I32 :: ValType.I32 :: inpTys) (ValType.I32 :: inpTys)
+  | F32Const (n : Float) : Op inpTys (ValType.F32 :: inpTys)
+  | F32Add : Op (ValType.F32 :: ValType.F32 :: inpTys) (ValType.F32 :: inpTys)
 
 inductive Prog : StackTypes -> StackTypes -> Type where
   | nil : Prog s s
@@ -40,17 +41,17 @@ def testProg : Prog [] [ValType.I32] :=
   Prog.nil
 
 #check List.map_cons
-macro "stack_op" : tactic => `(tactic| unfold Stack.types <;> rw [List.map_cons, Val.toValType])
+macro "stack_op" : tactic => `(tactic| { unfold Stack.types; rw [List.map_cons, Val.toValType] })
 
-def evalOp (inp : Stack) (op : Op inp.types out) : {result : Stack // result.types = out} := match inp, op with
-| Val.I32 a :: Val.I32 b :: rest, Op.I32Add => 
-    ⟨Val.I32 (a + b) :: rest, by stack_op⟩
+def evalOp (inp : Stack) (op : Op inp.types outTys) : {out : Stack // out.types = outTys} := 
+match inp, op with
+| Val.I32 a :: Val.I32 b :: xs, Op.I32Add => ⟨Val.I32 (a + b) :: xs, by stack_op⟩
+| Val.I32 a :: Val.I32 b :: xs, Op.I32Sub => ⟨Val.I32 (a - b) :: xs, by stack_op⟩
 | inp, Op.I32Const n => ⟨Val.I32 n :: inp, by stack_op⟩
-| Val.F32 a :: Val.F32 b :: rest, Op.F32Add => 
-    ⟨Val.F32 (a + b) :: rest, by stack_op⟩
+| Val.F32 a :: Val.F32 b :: xs, Op.F32Add => ⟨Val.F32 (a + b) :: xs, by stack_op⟩
 | inp, Op.F32Const n => ⟨Val.F32 n :: inp, by stack_op⟩
 
-def evalProg (inp : Stack) (prog : Prog (Stack.types inp) out) : {result : Stack // Stack.types result = out} := match prog with
+def evalProg (inp : Stack) (prog : Prog inp.types out) : {result : Stack // result.types = out} := match prog with
 | Prog.nil => ⟨inp, rfl⟩
 | Prog.cons op rest =>
     let ⟨step, h1⟩ := evalOp inp op
@@ -64,20 +65,21 @@ macro "stack_op'" h:ident : tactic => `(tactic| {
   exact $h
 })
 
-def evalOp' (op : Op inpTys outTys) (inp : Stack) (h : Stack.types inp = inpTys) 
-  : {out : Stack // Stack.types out = outTys} := 
-  match op with
-  | Op.I32Const n => ⟨Val.I32 n :: inp, by stack_op' h⟩
-  | Op.I32Add =>
-      let (Val.I32 a) :: (Val.I32 b) :: xs := inp
-      ⟨Val.I32 (a + b) :: xs, by stack_op' h⟩
-  | Op.F32Const n => ⟨Val.F32 n :: inp, by stack_op' h⟩
-  | Op.F32Add =>
-      let (Val.F32 a) :: (Val.F32 b) :: xs := inp
-      ⟨Val.F32 (a + b) :: xs, by stack_op' h⟩
+-- this is much more of a pain because op's inpTys are instantiated before we have inp,
+-- so we need the extra h. Additionally, in the previous evalOp, somehow Lean figures
+-- xs = inpTy automatically because it specializes more into the definition of Op?
+-- something to do w/ definitional vs propositional equality? or more quantification order?
+def evalOp' {inpTys : StackTypes} (op : Op inpTys outTys) (inp : Stack) (h : inp.types = inpTys)
+  : {out : Stack // out.types = outTys} :=
+  match op, inp with
+  | Op.I32Const n, inp => ⟨Val.I32 n :: inp, by stack_op' h⟩
+  | Op.I32Add, Val.I32 a :: Val.I32 b :: xs => ⟨Val.I32 (a + b) :: xs, by stack_op' h⟩
+  | Op.I32Sub, Val.I32 a :: Val.I32 b :: xs => ⟨Val.I32 (a - b) :: xs, by stack_op' h⟩
+  | Op.F32Const n, inp => ⟨Val.F32 n :: inp, by stack_op' h⟩
+  | Op.F32Add, Val.F32 a :: Val.F32 b :: xs => ⟨Val.F32 (a + b) :: xs, by stack_op' h⟩
 
-def evalProg' (prog : Prog inpTys outTys) (inp : Stack) (h : Stack.types inp = inpTys) 
-  : {out : Stack // Stack.types out = outTys} := match prog with
+def evalProg' (prog : Prog inpTys outTys) (inp : Stack) (h : inp.types = inpTys) 
+  : {out : Stack // out.types = outTys} := match prog with
   | Prog.nil => ⟨inp, h⟩
   | Prog.cons op rest =>
     let ⟨step, h1⟩ := evalOp inp (h ▸ op)
