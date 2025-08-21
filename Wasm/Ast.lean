@@ -5,15 +5,23 @@ inductive ValType : Type
   | F32
   deriving Repr
 
+abbrev ValType.repr : ValType -> Type
+| .I32 => UInt32
+| .F32 => Float
+
 inductive Val : Type
   | I32 (n : UInt32)
   | F32 (n : Float)
   deriving Repr
 
-@[simp, reducible]
-def Val.toValType (v: Val) : ValType := match v with
+@[simp]
+abbrev Val.toValType (v: Val) : ValType := match v with
   | I32 _ => .I32
   | F32 _ => .F32
+
+abbrev Val.toRepr (v : Val) : v.toValType.repr := match v with
+| I32 n => n
+| F32 n => n
 
 abbrev Stack := List Val
 abbrev StackTypes := List ValType
@@ -27,10 +35,33 @@ inductive Op : StackTypes -> StackTypes -> Type where
   | I32Add : Op (.I32 :: .I32 :: rest) (.I32 :: rest)
   | I32Sub : Op (.I32 :: .I32 :: rest) (.I32 :: rest)
   | F32Add : Op (.F32 :: .F32 :: rest) (.F32 :: rest)
+  deriving Repr
 
 inductive Prog : StackTypes -> StackTypes -> Type where
   | nil : Prog s s
   | cons {inp nxt out : StackTypes} (op : Op inp nxt) (rest : Prog nxt out) : Prog inp out
+  /- deriving Repr -/
+
+instance {inp out : StackTypes} : Repr (Prog inp out) where
+  reprPrec prog _prec :=
+    let rec toList {inp out : StackTypes} : (Prog inp out) -> List (Σ inp nxt : StackTypes, Op inp nxt)
+      | .nil => []
+      | .cons op rest => ⟨_, _, op⟩ :: toList rest
+    
+    let ops := toList prog
+    match ops with
+    | [] => "EmptyProg"
+    | _ => 
+      let opReprs := ops.map fun ⟨_, _, op⟩ => toString (repr op)
+      String.intercalate ",\n" opReprs
+
+def Prog.concat (fst : Prog a b) (snd : Prog b c) : Prog a c := match fst with
+| .nil => snd
+| .cons op rest => .cons op (rest.concat snd)
+
+def Prog.append (prog : Prog a b) (op : Op b c) : Prog a c := match prog with
+| .nil => Prog.cons op (Prog.nil)
+| .cons op' rest => Prog.cons op' (rest.append op)
 
 infixr:50 " ;; " => Prog.cons
 
@@ -83,8 +114,9 @@ def evalProg' (prog : Prog inpTys outTys) (inp : Stack) (h : inp.types = inpTys)
   : {out : Stack // out.types = outTys} := match prog with
   | Prog.nil => ⟨inp, h⟩
   | Prog.cons op rest =>
-    let ⟨step, h1⟩ := evalOp inp (h ▸ op)
-    evalProg step (h1 ▸ rest)
+    let ⟨step, h1⟩ := evalOp' op inp h
+    evalProg' rest step h1
+    /- evalProg step (h1 ▸ rest) -/
 
 #eval (evalProg [] testProg).val
 #eval (evalProg' testProg [] rfl).val
