@@ -14,6 +14,10 @@ inductive Val : Type
   | F32 (n : Float)
   deriving Repr
 
+inductive TVal : ValType -> Type
+| I32 (n : UInt32) : TVal .I32
+| F32 (n : Float) : TVal .F32
+
 @[simp]
 abbrev Val.toValType (v: Val) : ValType := match v with
   | I32 _ => .I32
@@ -22,6 +26,20 @@ abbrev Val.toValType (v: Val) : ValType := match v with
 abbrev Val.toRepr (v : Val) : v.toValType.repr := match v with
 | I32 n => n
 | F32 n => n
+
+abbrev TVal.toRepr (v : TVal T) : T.repr := match v with
+| I32 n => n
+| F32 n => n
+
+abbrev TVal.toValR (tv : TVal T) : { v : Val // v.toValType = T } := match tv with
+| I32 n => ⟨.I32 n, rfl⟩
+| F32 n => ⟨.F32 n, rfl⟩
+
+abbrev TVal.toVal (tv : TVal T) : Val := tv.toValR.val
+
+abbrev TVal.ofVal (v : Val) : TVal v.toValType := match v with
+| .I32 n => .I32 n
+| .F32 n => .F32 n
 
 abbrev Stack := List Val
 abbrev StackTypes := List ValType
@@ -59,9 +77,25 @@ def Prog.concat (fst : Prog a b) (snd : Prog b c) : Prog a c := match fst with
 | .nil => snd
 | .cons op rest => .cons op (rest.concat snd)
 
+@[simp]
 def Prog.append (prog : Prog a b) (op : Op b c) : Prog a c := match prog with
 | .nil => Prog.cons op (Prog.nil)
 | .cons op' rest => Prog.cons op' (rest.append op)
+
+theorem prog_append_is_concat : Prog.append a op = Prog.concat a (Prog.cons op Prog.nil)
+  := by
+    induction a with
+    | nil => rfl
+    | cons a_op rest ih => unfold Prog.append Prog.concat; rw [ih];
+
+theorem prog_concat_assoc : Prog.concat (Prog.concat a b) c = Prog.concat a (Prog.concat b c)
+  := by
+      induction a with
+      | nil => simp [Prog.concat];
+      | cons a_op rest iha => unfold Prog.concat; rw [<- iha]; rfl;
+
+theorem prog_append_assoc : (Prog.concat a b).append op = Prog.concat a (b.append op)
+  := by simp [prog_append_is_concat, prog_concat_assoc];
 
 infixr:50 " ;; " => Prog.cons
 
