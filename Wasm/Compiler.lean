@@ -14,6 +14,20 @@ def Expr.eval' (e : Expr T) : TVal T := match e with
 | .I32Sub lhs rhs => .I32 $ lhs.eval'.toRepr - rhs.eval'.toRepr
 | .F32Add lhs rhs => .F32 $ lhs.eval'.toRepr + rhs.eval'.toRepr
 
+theorem val_repr (v : { v : Val // v.toValType = T}) : v.val.toValType.repr = T.repr := by rw [v.property];
+
+def Expr.eval'' (e : Expr T) : { v : Val // v.toValType = T } := match e with
+| .I32Lit n => ⟨.I32 n, rfl⟩
+| .F32Lit n => ⟨.F32 n, rfl⟩
+| .I32Add lhs rhs => ⟨.I32 $ Val.toReprR lhs.eval'' + Val.toReprR rhs.eval'', rfl⟩
+      /- let ⟨lhs_e, hl⟩ := lhs.eval'' -/
+      /- let ⟨rhs_e, hr⟩ := rhs.eval'' -/
+      /- let hlr : lhs_e.toValType.repr = UInt32 := by rw [hl]; -/
+      /- let hrr : rhs_e.toValType.repr = UInt32 := by rw [hr]; -/
+      /- ⟨.I32 $ (val_repr ▸ lhs_e.toRepr) + (hrr ▸ rhs_e.toRepr), rfl⟩ -/
+| .I32Sub lhs rhs => ⟨.I32 $ Val.toReprR lhs.eval'' - Val.toReprR rhs.eval'', rfl⟩
+| .F32Add lhs rhs => ⟨.F32 $ Val.toReprR lhs.eval'' + Val.toReprR rhs.eval'', rfl⟩
+
 def Expr.eval (e : Expr T) : T.repr := 
   let tv := e.eval'
   let ⟨v, h⟩ := tv.toValR
@@ -184,7 +198,7 @@ theorem eval_prog_append : evalProg' (Prog.append l op) st h = evalOp' op (evalP
     induction l generalizing st with
     | nil => simp [evalProg']
     | cons l_op rest ih => simp [evalProg']; rw [ih];
-        
+
 theorem compile_eq_eval {T : ValType} {stypes : StackTypes} {st : Stack} {h : st.types = stypes}
   : ∀ (e : Expr T), (evalProg' e.compile st h).val = e.eval'.toVal :: st
   := by
@@ -206,7 +220,33 @@ theorem compile_eq_eval {T : ValType} {stypes : StackTypes} {st : Stack} {h : st
             · conv => left; arg 1; arg 2; rw [ihr];
               simp [Expr.eval'];
               -- scuffed here bc of TVal/Val differences :/
+              unfold evalOp'; simp;
               sorry
+
+theorem compile_eq_eval' {T : ValType} {stypes : StackTypes} {st : Stack} {h : st.types = stypes}
+  : ∀ (e : Expr T), (evalProg' e.compile st h).val = e.eval''.val :: st
+  := by
+      intro e;
+      induction e generalizing st stypes with
+      | I32Lit n => conv => left; simp [evalProg', Expr.compile, evalOp'];
+                    conv => right; simp [Expr.eval', TVal.toVal];
+                    rfl;
+      | F32Lit n => conv => left; simp [evalProg', Expr.compile, evalOp'];
+                    conv => right; simp [Expr.eval', TVal.toVal];
+                    rfl;
+      | I32Add lhs rhs ihl ihr =>
+          conv => left; unfold Expr.compile; rw [prog_append_assoc];
+          rw [prog_eval_concat];
+          · conv => left; arg 1; arg 2; rw [ihl];
+            rw [eval_prog_append];
+            rotate_left;
+            · grind
+            · grind
+            · conv => left; arg 1; arg 2; rw [ihr];
+              conv => right; unfold Expr.eval'';
+              rw [eval_add] <;> grind
+      | I32Sub lhs rhs ihl ihr =>
+          sorry
   /- have ⟨res, h⟩ := progResHead compile_res; -/
   /- have h' : T.repr = res.toValType.repr := by rw [h]; -/
   /- show (res.toRepr = h' ▸ e.eval); -/

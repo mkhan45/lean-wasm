@@ -27,9 +27,7 @@ abbrev Val.toRepr (v : Val) : v.toValType.repr := match v with
 | I32 n => n
 | F32 n => n
 
-abbrev TVal.toRepr (v : TVal T) : T.repr := match v with
-| I32 n => n
-| F32 n => n
+abbrev Val.toReprR (v : { v : Val // v.toValType = T }) : T.repr := (v.property ▸ v.val.toRepr)
 
 abbrev TVal.toValR (tv : TVal T) : { v : Val // v.toValType = T } := match tv with
 | I32 n => ⟨.I32 n, rfl⟩
@@ -40,6 +38,10 @@ abbrev TVal.toVal (tv : TVal T) : Val := tv.toValR.val
 abbrev TVal.ofVal (v : Val) : TVal v.toValType := match v with
 | .I32 n => .I32 n
 | .F32 n => .F32 n
+
+abbrev TVal.toRepr (v : TVal T) : T.repr := 
+  let ⟨r, h⟩ := v.toValR
+  h ▸ r.toRepr
 
 abbrev Stack := List Val
 abbrev StackTypes := List ValType
@@ -143,6 +145,41 @@ def evalOp' (op : Op inpTys outTys) (inp : Stack) (h : inp.types = inpTys) : {ou
   | Op.I32Sub, Val.I32 a :: Val.I32 b :: xs => ⟨Val.I32 (a - b) :: xs, by stack_op' h⟩
   | Op.F32Const n, inp => ⟨Val.F32 n :: inp, by stack_op' h⟩
   | Op.F32Add, Val.F32 a :: Val.F32 b :: xs => ⟨Val.F32 (a + b) :: xs, by stack_op' h⟩
+
+theorem stack_head (st : Stack) (h : st.types = VT :: ts) : (x :: xs = st) -> x.toValType = VT := by
+  intro h'; 
+  have ht : Stack.types (x :: xs) = st.types := by rw [h'];
+  unfold Stack.types at ht h; rw [List.map_cons] at ht; rw [h] at ht;
+  rw [List.cons_eq_cons] at ht; rw [ht.left];
+
+theorem eval_add {ha : a.toValType.repr = UInt32} {hb : b.toValType.repr = UInt32}
+                 {tl : StackTypes} {h : Stack.types (a :: b :: xs) = .I32 :: .I32 :: tl}
+  : evalOp' .I32Add (a :: b :: xs) h = .I32 ((ha ▸ a.toRepr) + (hb ▸ b.toRepr)) :: xs
+  := by
+    have hat : a.toValType = .I32 := by simp [stack_head (a :: b :: xs) h];
+    have h' : Stack.types (b :: xs) = .I32 :: tl := by 
+      unfold Stack.types at ⊢ h; rw [List.map_cons] at h; rw [List.cons_eq_cons] at h;
+      rw [h.right];
+    have hbt : b.toValType = .I32 := by simp [stack_head (b :: xs) h'];
+    have ha_i32 : ∃ n, a = .I32 n := by
+      let ar := a.toRepr
+      have : a.toValType.repr = UInt32 := by rw [hat];
+      exists (this ▸ ar)
+      cases a with
+      | I32 => unfold ar; simp;
+      | F32 => contradiction
+    have hb_i32 : ∃ n, b = .I32 n := by
+      let br := b.toRepr
+      have : b.toValType.repr = UInt32 := by rw [hbt];
+      exists (this ▸ br)
+      cases b with
+      | I32 => unfold br; simp;
+      | F32 => contradiction
+    obtain ⟨a', ha'⟩ := ha_i32
+    obtain ⟨b', hb'⟩ := hb_i32
+    simp [ha', hb'];
+    simp [evalOp'];
+    grind;
 
 def evalProg' (prog : Prog inpTys outTys) (inp : Stack) (h : inp.types = inpTys) 
   : {out : Stack // out.types = outTys} := match prog with
