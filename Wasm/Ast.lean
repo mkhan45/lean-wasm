@@ -27,7 +27,8 @@ abbrev Val.toRepr (v : Val) : v.toValType.repr := match v with
 | I32 n => n
 | F32 n => n
 
-theorem val_i32 (v : Val) : v.toValType = .I32 → ∃ n, v = .I32 n := by grind;
+theorem val_i32 (v : Val) : v.toValType = .I32 → ∃ n : UInt32, v = .I32 n := by grind;
+theorem val_f32 (v : Val) : v.toValType = .F32 → ∃ n : Float, v = .F32 n := by grind;
 
 abbrev Val.toReprR (v : { v : Val // v.toValType = T }) : T.repr := (v.property ▸ v.val.toRepr)
 
@@ -143,10 +144,10 @@ macro "stack_op'" h:ident : tactic => `(tactic| {
 def evalOp' (op : Op inpTys outTys) (inp : Stack) (h : inp.types = inpTys) : {out : Stack // out.types = outTys} :=
   match h1 : op, h2 : inp with
   | Op.I32Const n, inp => ⟨Val.I32 n :: inp, by stack_op' h⟩
-  | Op.I32Add, (Val.I32 a :: Val.I32 b :: xs) => ⟨Val.I32 (a + b) :: xs, by stack_op' h⟩
-  | Op.I32Sub, Val.I32 a :: Val.I32 b :: xs => ⟨Val.I32 (a - b) :: xs, by stack_op' h⟩
+  | Op.I32Add, (Val.I32 a :: Val.I32 b :: xs) => ⟨Val.I32 (b + a) :: xs, by stack_op' h⟩
+  | Op.I32Sub, Val.I32 a :: Val.I32 b :: xs => ⟨Val.I32 (b - a) :: xs, by stack_op' h⟩
   | Op.F32Const n, inp => ⟨Val.F32 n :: inp, by stack_op' h⟩
-  | Op.F32Add, Val.F32 a :: Val.F32 b :: xs => ⟨Val.F32 (a + b) :: xs, by stack_op' h⟩
+  | Op.F32Add, Val.F32 a :: Val.F32 b :: xs => ⟨Val.F32 (b + a) :: xs, by stack_op' h⟩
 
 theorem stack_head (st : Stack) (h : st.types = VT :: ts) : (x :: xs = st) -> x.toValType = VT := by
   intro h'; 
@@ -167,6 +168,40 @@ theorem eval_add {ha : a.toValType.repr = UInt32} {hb : b.toValType.repr = UInt3
     have hb_i32 : ∃ n, b = .I32 n := val_i32 b hbt;
     obtain ⟨a', ha'⟩ := ha_i32
     obtain ⟨b', hb'⟩ := hb_i32
+    simp [ha', hb'];
+    simp [evalOp'];
+    grind;
+
+theorem eval_sub {ha : a.toValType.repr = UInt32} {hb : b.toValType.repr = UInt32}
+                 {tl : StackTypes} {h : Stack.types (a :: b :: xs) = .I32 :: .I32 :: tl}
+  : evalOp' .I32Sub (a :: b :: xs) h = .I32 ((hb ▸ b.toRepr) - (ha ▸ a.toRepr)) :: xs
+  := by
+    have hat : a.toValType = .I32 := by simp [stack_head (a :: b :: xs) h];
+    have h' : Stack.types (b :: xs) = .I32 :: tl := by 
+      unfold Stack.types at ⊢ h; rw [List.map_cons] at h; rw [List.cons_eq_cons] at h;
+      rw [h.right];
+    have hbt : b.toValType = .I32 := by simp [stack_head (b :: xs) h'];
+    have ha_i32 : ∃ n, a = .I32 n := val_i32 a hat;
+    have hb_i32 : ∃ n, b = .I32 n := val_i32 b hbt;
+    obtain ⟨a', ha'⟩ := ha_i32
+    obtain ⟨b', hb'⟩ := hb_i32
+    simp [ha', hb'];
+    simp [evalOp'];
+    grind;
+
+theorem eval_add_f32 {ha : a.toValType.repr = Float} {hb : b.toValType.repr = Float}
+                {tl : StackTypes} {h : Stack.types (a :: b :: xs) = .F32 :: .F32 :: tl}
+  : evalOp' .F32Add (a :: b :: xs) h = .F32 ((hb ▸ b.toRepr) + (ha ▸ a.toRepr)) :: xs
+  := by
+    have hat : a.toValType = .F32 := by simp [stack_head (a :: b :: xs) h];
+    have h' : Stack.types (b :: xs) = .F32 :: tl := by 
+      unfold Stack.types at ⊢ h; rw [List.map_cons] at h; rw [List.cons_eq_cons] at h;
+      rw [h.right];
+    have hbt : b.toValType = .F32 := by simp [stack_head (b :: xs) h'];
+    have ha_f32 : ∃ n, a = .F32 n := val_f32 a hat;
+    have hb_f32 : ∃ n, b = .F32 n := val_f32 b hbt;
+    obtain ⟨a', ha'⟩ := ha_f32
+    obtain ⟨b', hb'⟩ := hb_f32
     simp [ha', hb'];
     simp [evalOp'];
     grind;
