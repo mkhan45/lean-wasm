@@ -1,4 +1,4 @@
-import Wasm
+import Wasm.Ast
 
 inductive Expr : ValType -> Type
 | I32Lit (n : UInt32) : Expr .I32
