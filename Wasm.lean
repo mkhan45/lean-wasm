@@ -3,3 +3,4 @@
 import Wasm.Basic
 import Wasm.Ast
 import Wasm.Compiler
+import Wasm.TAst
