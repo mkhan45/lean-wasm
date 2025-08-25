@@ -27,6 +27,8 @@ abbrev Val.toRepr (v : Val) : v.toValType.repr := match v with
 | I32 n => n
 | F32 n => n
 
+theorem val_i32 (v : Val) : v.toValType = .I32 → ∃ n, v = .I32 n := by grind;
+
 abbrev Val.toReprR (v : { v : Val // v.toValType = T }) : T.repr := (v.property ▸ v.val.toRepr)
 
 abbrev TVal.toValR (tv : TVal T) : { v : Val // v.toValType = T } := match tv with
@@ -161,20 +163,8 @@ theorem eval_add {ha : a.toValType.repr = UInt32} {hb : b.toValType.repr = UInt3
       unfold Stack.types at ⊢ h; rw [List.map_cons] at h; rw [List.cons_eq_cons] at h;
       rw [h.right];
     have hbt : b.toValType = .I32 := by simp [stack_head (b :: xs) h'];
-    have ha_i32 : ∃ n, a = .I32 n := by
-      let ar := a.toRepr
-      have : a.toValType.repr = UInt32 := by rw [hat];
-      exists (this ▸ ar)
-      cases a with
-      | I32 => unfold ar; simp;
-      | F32 => contradiction
-    have hb_i32 : ∃ n, b = .I32 n := by
-      let br := b.toRepr
-      have : b.toValType.repr = UInt32 := by rw [hbt];
-      exists (this ▸ br)
-      cases b with
-      | I32 => unfold br; simp;
-      | F32 => contradiction
+    have ha_i32 : ∃ n, a = .I32 n := val_i32 a hat;
+    have hb_i32 : ∃ n, b = .I32 n := val_i32 b hbt;
     obtain ⟨a', ha'⟩ := ha_i32
     obtain ⟨b', hb'⟩ := hb_i32
     simp [ha', hb'];
